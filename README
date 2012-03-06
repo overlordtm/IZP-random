@@ -1,0 +1,3 @@
+Some code produced on recitations for course about using high performance CPUs. Mostly about SSE and OpenCl
+
+SSE_DP/ # calculating dot product with SSE instructions
