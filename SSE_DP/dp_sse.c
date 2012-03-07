@@ -1,4 +1,5 @@
-//#define USE_SSE4
+#define USE_SSE4
+//#undef USE_SSE4
 
 #include <stdio.h>
 #include <unistd.h>
@@ -10,56 +11,27 @@
 	#include <pmmintrin.h>
 #endif
 
-#define VL 4
+#define VL 32
 
-inline void dp4f_asm(float *, float *, float *);
-inline void dp4f(float *, float *, float *);
-inline void dp4(__m128, __m128, float *);
-static unsigned long long rdtsctime();
+
 void rand_vec(float* vec, int len);
 void print_vec(float* vec, int len);
-
-int main() {
-
-#ifdef _SMMINTRIN_H_INCLUDED
-	printf("SSE4 enabled\n");
+void print_vec(float* vec, int len);
+void dp4f_naive(float *v1, float *v2, float *dp);
+inline void dp4f_asm(float *v1, float *v2, float *dp);
+inline void dp4f(float *v1, float *v2, float *dp);
+inline void dp4f_sse(float *v1, float *v2, float *dp);
+#ifdef USE_SSE4
+inline void dp4f_sse4(float *v1, float *v2, float *dp);
+inline void dp4_sse4(__m128 v1, __m128 v2, float *dp);
+void dp_sse4(float *a, float *b, float *dp, int len);
 #endif
+inline void dp4_sse(__m128 v1, __m128 v2, float *dp);
+static unsigned long long rdtsctime();
+void dp_naive(float *a, float *b, float *dp, int len);
+void dp_sse(float *a, float *b, float *dp, int len);
+void dp_asm(float *a, float *b, float *dp, int len);
 
-#ifdef _PMMINTRIN_H_INCLUDED
-	printf("SSE3 enabled\n");
-#endif
-
-	unsigned long long flop, start, stop, cycles;
-	flop = 2*VL;
-	
-	float dpd __attribute__((aligned(16)));
-	float *a = _mm_malloc(VL*sizeof(float), 16);
-	float *b = _mm_malloc(VL*sizeof(float), 16);
-
-	rand_vec(a, VL);
-	rand_vec(b, VL);
-
-	printf("Vektor A:");
-	print_vec(a, VL);
-	printf("\n");
-
-
-	printf("Vektor B:");
-	print_vec(b, VL);
-	printf("\n");
-
-	start = rdtsctime();
-	
-	dp4f(a, b, &dpd);
-	
-	stop = rdtsctime();
-	cycles = stop - start;	
-
-	printf("cycles: %llu flops: %f \n", cycles, flop/cycles);
-	printf("dot product is %f\n", dpd);
-
-	return 0;
-}
 
 /**
  *  Generate random vector of length len
@@ -80,7 +52,17 @@ void rand_vec(float* vec, int len) {
 void print_vec(float* vec, int len) {
 
 	for(int i = 0; i < len; i++) {
-		printf("%f ", vec[i]);
+		printf("%4.3f ", vec[i]);
+	}
+}
+
+/**
+ * Naive implementation of dotproduct using loop
+ */
+
+void dp4f_naive(float *v1, float *v2, float *dp) {
+	for(int i = 0; i < 4; i++) {
+		*dp += v1[i] * v2[i];
 	}
 }
 
@@ -109,21 +91,36 @@ inline void dp4f_asm(float *v1, float *v2, float *dp) {
  */
 
 inline void dp4f(float *v1, float *v2, float *dp) {
-	__m128 a = _mm_load_ps(v1);
-	__m128 b = _mm_load_ps(v2);
-	dp4(a, b, dp);
+#ifdef USE_SSE4
+	dp4f_sse4(v1, v2, dp);
+#else
+	dp4f_sse(v1, v2, dp);
+#endif
 }
 
-#ifdef USE_SSE4
-inline void dp4(__m128 v1, __m128 v2, float *dp) {
-	__m128 tmp = _mm_dp_ps(v1, v2);
-	_mm_store_ss(dp, tmp);	
+inline void dp4f_sse(float *v1, float *v2, float *dp) {
+	__m128 a = _mm_load_ps(v1);
+	__m128 b = _mm_load_ps(v2);
+	dp4_sse(a, b, dp);
 }
-#else
-inline void dp4(__m128 v1, __m128 v2, float *dp) {
+
+inline void dp4_sse(__m128 v1, __m128 v2, float *dp) {
 	__m128 prod = _mm_mul_ps(v1, v2);
 	__m128 sum = _mm_hadd_ps(prod, prod);
 	_mm_store_ss(dp, sum);	
+}
+
+#ifdef USE_SSE4
+inline void dp4f_sse4(float *v1, float *v2, float *dp) {
+	__m128 a = _mm_load_ps(v1);
+	__m128 b = _mm_load_ps(v2);
+	dp4_sse4(a, b, dp);
+}
+
+inline void dp4_sse4(__m128 v1, __m128 v2, float *dp) {
+	const int mask = 0xF1;
+	__m128 tmp = _mm_dp_ps(v1, v2, mask);
+	_mm_store_ss(dp, tmp);	
 }
 #endif
 
@@ -140,3 +137,115 @@ static unsigned long long rdtsctime() {
 	val += eax;
 	return val;
 }
+
+
+/**
+ * Naive implementation of dot product for vectors of
+ * length divisible by 4
+ */
+
+void dp_naive(float *a, float *b, float *dp, int len) {
+	for(int i = 0; i < len; i+=4) {
+		dp4f_naive(&a[i], &b[i], dp);	
+	}
+}
+
+
+/**
+ * SSE implementation of dot product for vectors of
+ * length divisible by 4
+ */
+
+void dp_sse(float *a, float *b, float *dp, int len) {
+	for(int i = 0; i < len; i+=4) {
+		dp4f_sse(&a[i], &b[i], dp);	
+	}
+}
+
+/**
+ * SSE4 implementation of dot product for vectors of
+ * length divisible by 4
+ */
+#ifdef USE_SSE4
+void dp_sse4(float *a, float *b, float *dp, int len) {
+	for(int i = 0; i < len; i+=4) {
+		dp4f_sse4(&a[i], &b[i], dp);	
+	}
+}
+#endif
+
+/**
+ * ASM-SSE4 implementation of dot product for vectors of
+ * length divisible by 4
+ */
+
+void dp_asm(float *a, float *b, float *dp, int len) {
+	for(int i = 0; i < len; i+=4) {
+		dp4f_asm(&a[i], &b[i], dp);	
+	}
+}
+
+
+int main() {
+
+#ifdef USE_SSE4
+	printf("SSE4 enabled\n");
+#endif
+
+	unsigned long long flop, start, stop, cycles;
+	flop = 2*VL;
+	
+//	float test1[8] __attribute__((aligned(16))) = { 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f };
+//	float test2[8] __attribute__((aligned(16))) = { 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f };
+	float dpd __attribute__((aligned(16))) = 0.0f;
+	float *a = _mm_malloc(VL*sizeof(float), 16);
+	float *b = _mm_malloc(VL*sizeof(float), 16);
+
+	// get random vectors of length VL
+	rand_vec(a, VL);
+	rand_vec(b, VL);
+
+	// print vectors
+	printf("Vektor A: ");
+	print_vec(a, VL);
+	printf("\n");
+
+	printf("Vektor B: ");
+	print_vec(b, VL);
+	printf("\n");
+
+	/* naive first */
+	dpd = 0.0f;
+	printf("\n=== Running naive dot product ===\n");
+	start = rdtsctime();
+	dp_naive(a, b, &dpd, VL);
+	stop = rdtsctime();
+	cycles = stop - start;	
+	printf("cycles: %llu flops per cyc: %f \n", cycles, (double)flop/cycles);
+	printf("dot product is %f\n", dpd);
+
+
+	/* then SSE intrinsics */
+	dpd = 0.0f;
+	printf("\n=== Running SSE dot product ===\n");
+	start = rdtsctime();
+//	dp_sse(a, b, &dpd, VL);
+	stop = rdtsctime();
+	cycles = stop - start;	
+	printf("cycles: %llu flops per cyc: %f \n", cycles, (double)flop/cycles);
+	printf("dot product is %f\n", dpd);
+
+
+	/* then SSE asm */
+	dpd = 0.0f;
+	printf("\n=== Running ASM-SSE dot product ===\n");
+	start = rdtsctime();
+	dp_asm(a, b, &dpd, VL);
+	stop = rdtsctime();
+	cycles = stop - start;	
+	printf("cycles: %llu flops per cyc: %f \n", cycles, (double)flop/cycles);
+	printf("dot product is %f\n", dpd);
+
+	return 0;
+}
+
