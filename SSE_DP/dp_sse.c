@@ -61,6 +61,11 @@ int main() {
 	return 0;
 }
 
+/**
+ *  Generate random vector of length len
+ *  with elements floats in range 0 to 1
+ */
+
 void rand_vec(float* vec, int len) {
 	srand(getpid() * time(NULL));
 	
@@ -69,12 +74,21 @@ void rand_vec(float* vec, int len) {
 	}
 }
 
+/**
+ * Print vector of length len
+ */
 void print_vec(float* vec, int len) {
 
 	for(int i = 0; i < len; i++) {
 		printf("%f ", vec[i]);
 	}
 }
+
+/**
+ * Routine for calculating dot product of length 4
+ * vector of floats (single precision)
+ * written in inline asm using SSE4 instructions
+ */
 
 inline void dp4f_asm(float *v1, float *v2, float *dp) {
 	__asm__(
@@ -86,6 +100,13 @@ inline void dp4f_asm(float *v1, float *v2, float *dp) {
 		:"m"(v1[0]), "m"(v2[0])
 		:"xmm1", "xmm2");
 }
+
+/**
+ * Routine for calculating dot product of length 4
+ * vector of floats (single precision)
+ * written using intrisics. Choose between SSE3 and SSE4 
+ * at compiletime using flag USE_SSE4
+ */
 
 inline void dp4f(float *v1, float *v2, float *dp) {
 	__m128 a = _mm_load_ps(v1);
@@ -105,6 +126,10 @@ inline void dp4(__m128 v1, __m128 v2, float *dp) {
 	_mm_store_ss(dp, sum);	
 }
 #endif
+
+/**
+ * Timing method returnig number of cycles
+ */
 
 static unsigned long long rdtsctime() {
 	unsigned int eax, edx;
